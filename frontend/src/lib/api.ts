@@ -37,10 +37,34 @@ export async function queryData(question: string, sqlOverride?: string, conversa
   });
 }
 
+export async function healthCheck() {
+  return request("/api/health");
+}
+
 export async function deleteDataset() {
   return request("/api/dataset", { method: "DELETE" });
 }
 
-export async function healthCheck() {
-  return request("/api/health");
+export async function generateDashboard() {
+  return request("/api/dashboard", { method: "POST" });
+}
+
+export async function checkDataHealth(tableName: string) {
+  return request("/api/clean", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ table_name: tableName })
+  });
+}
+
+export async function fixDataIssue(tableName: string, fixType: string, column?: string) {
+  return request("/api/clean/fix", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ table_name: tableName, fix_type: fixType, column: column || null })
+  });
+}
+
+export async function getColumnProfile(tableName: string, columnName: string) {
+  return request(`/api/profile/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`);
 }

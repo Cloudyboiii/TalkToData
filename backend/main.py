@@ -8,6 +8,9 @@ load_dotenv()
 from routes.upload import router as upload_router
 from routes.query import router as query_router
 from routes.health import router as health_router
+from routes.dashboard import router as dashboard_router
+from routes.clean import router as clean_router
+from routes.profile import router as profile_router
 
 app = FastAPI(title="TalkToData API", version="1.0.0")
 
@@ -32,6 +35,9 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api")
 app.include_router(upload_router, prefix="/api")
 app.include_router(query_router, prefix="/api")
+app.include_router(dashboard_router, prefix="/api")
+app.include_router(clean_router, prefix="/api")
+app.include_router(profile_router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn
