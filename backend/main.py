@@ -14,6 +14,7 @@ app = FastAPI(title="TalkToData API", version="1.0.0")
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://talk-to-data-gold.vercel.app",
 ]
 
 prod_url = os.getenv("FRONTEND_URL")
