@@ -20,7 +20,12 @@ TalkToData lets non-technical users query CSV datasets using plain English. Behi
 ## Features
 
 - **Natural Language to SQL** — Gemini converts plain English to SQLite queries with schema-aware prompting
+- **Multi-CSV Support** — upload multiple CSVs as separate tables, Gemini can JOIN across them
+- **Chat History** — follow-up questions reference previous query context
+- **AI-Generated Insights** — 2-3 data-driven observations auto-generated after every query
 - **Auto-Generated Charts** — Bar, line charts based on result shape; single values shown as stat cards
+- **Pie Chart + Chart Type Toggle** — switch between Bar, Line, Pie, Table on any result
+- **PDF Report Export** — export all query results with insights as a printable report
 - **Editable SQL View** — Power users can view, edit, and re-run any generated SQL query
 - **Suggested Questions** — Gemini generates 5 relevant questions from your dataset schema on upload
 - **Schema Viewer** — Browse all columns, types, and sample values in a collapsible panel
