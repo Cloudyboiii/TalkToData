@@ -8,38 +8,42 @@ SYSTEM_PROMPT = """You are a SQL expert. Your job is to convert natural language
 
 RULES:
 1. ALWAYS return ONLY a valid SQLite SELECT query — no explanation, no markdown, no backticks, no preamble.
-2. The table name is always: data
-3. Use only column names from the schema provided.
-4. Use SQLite syntax (not MySQL or PostgreSQL).
-5. For text comparisons, use LIKE with % wildcards and LOWER() for case-insensitive matching.
-6. Never use DROP, DELETE, INSERT, UPDATE, ALTER, CREATE, TRUNCATE, or REPLACE.
-7. If the question cannot be answered with SQL from the available schema, return: SELECT 'Cannot answer this question from the available data' AS message
-8. For date/time operations use SQLite date functions.
-9. Always add LIMIT 100 unless the question explicitly asks for all data or an aggregation.
+2. Use ONLY the tables and columns from the schema provided. You may JOIN multiple tables if necessary.
+3. Use SQLite syntax (not MySQL or PostgreSQL).
+4. For text comparisons, use LIKE with % wildcards and LOWER() for case-insensitive matching.
+5. Never use DROP, DELETE, INSERT, UPDATE, ALTER, CREATE, TRUNCATE, or REPLACE.
+6. If the question cannot be answered with SQL from the available schema, return: SELECT 'Cannot answer this question from the available data' AS message
+7. For date/time operations use SQLite date functions.
+8. Always add LIMIT 100 unless the question explicitly asks for all data or an aggregation.
 
 Return ONLY the SQL query, nothing else."""
 
 
-def generate_sql(question: str, schema: list[dict], sample_rows: list[dict], filename: str) -> str:
+def generate_sql(question: str, tables: list[dict], conversation_history: list[dict] = None) -> str:
     """Use Gemini to convert a natural language question into a SQL query."""
 
     # Build schema description
-    schema_text = "Table: data\nColumns:\n"
-    for col in schema:
-        samples = ", ".join(str(v) for v in col["sample_values"][:3])
-        schema_text += f"  - {col['column']} ({col['type']}) — examples: {samples}\n"
+    schema_text = "Available Tables:\n"
+    for table in tables:
+        schema_text += f"\nTable: {table['name']} (from {table['filename']})\nColumns:\n"
+        for col in table["schema"]:
+            samples = ", ".join(str(v) for v in col["sample_values"][:3])
+            schema_text += f"  - {col['column']} ({col['type']}) — examples: {samples}\n"
+            
+        if table.get("sample_rows"):
+            schema_text += f"First {len(table['sample_rows'])} rows preview:\n"
+            for row in table["sample_rows"][:3]:
+                schema_text += f"  {row}\n"
 
-    # Build sample data description
-    if sample_rows:
-        sample_text = f"\nFirst {len(sample_rows)} rows preview:\n"
-        for row in sample_rows[:3]:
-            sample_text += f"  {row}\n"
-    else:
-        sample_text = ""
+    history_text = ""
+    if conversation_history:
+        history_text = "Recent queries for context:\n"
+        for entry in conversation_history:
+            history_text += f"Q: {entry['question']} → SQL: {entry['sql']}\n"
+        history_text += "\n"
 
-    user_prompt = f"""Dataset: {filename}
-{schema_text}{sample_text}
-Question: {question}
+    user_prompt = f"""{schema_text}
+{history_text}Question: {question}
 
 Generate the SQLite SELECT query to answer this question."""
 
@@ -85,3 +89,18 @@ Return ONLY the 5 questions as a numbered list (1. ... 2. ... etc), no other tex
                 questions.append(q)
 
     return questions[:5]
+
+def generate_insights(question: str, sql: str, columns: list[str], rows: list[dict]) -> list[str]:
+    """Generate 2-3 specific insights based on the SQL result."""
+    prompt = f"""Given this question: {question}
+SQL result columns: {columns}
+Data (first 10 rows): {rows[:10]}
+Generate exactly 2-3 concise, specific, data-driven insights about this result. Each insight should reference specific numbers from the data. Return ONLY the bullet points starting with •"""
+
+    model = genai.GenerativeModel(settings.GEMINI_MODEL)
+    response = model.generate_content(prompt)
+    
+    lines = response.text.strip().split("\n")
+    insights = [line.strip().lstrip("•").strip() for line in lines if line.strip().startswith("•")]
+    
+    return insights[:3]

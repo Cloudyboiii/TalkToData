@@ -24,22 +24,19 @@ async def upload_csv(
         raise HTTPException(status_code=400, detail=f"File exceeds {settings.MAX_FILE_SIZE_MB}MB limit.")
 
     try:
-        result = ingest_csv(x_session_id, content, file.filename)
+        tables = ingest_csv(x_session_id, content, file.filename)
+        new_table = tables[-1]
 
-        # Generate suggested questions from schema
+        # Generate suggested questions from schema of the new table
         suggested_questions = generate_suggested_questions(
-            schema=result["schema"],
-            filename=result["filename"],
-            row_count=result["row_count"],
+            schema=new_table["schema"],
+            filename=new_table["filename"],
+            row_count=new_table["row_count"],
         )
 
         return {
             "status": "success",
-            "filename": result["filename"],
-            "row_count": result["row_count"],
-            "column_count": result["column_count"],
-            "schema": result["schema"],
-            "sample_rows": result["sample_rows"],
+            "tables": tables,
             "suggested_questions": suggested_questions,
         }
     except ValueError as e:

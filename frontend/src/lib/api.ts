@@ -25,11 +25,15 @@ export async function uploadCSV(file: File) {
   return request("/api/upload", { method: "POST", body: formData });
 }
 
-export async function queryData(question: string, sqlOverride?: string) {
+export async function queryData(question: string, sqlOverride?: string, conversationHistory?: any[]) {
   return request("/api/query", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, sql_override: sqlOverride || null }),
+    body: JSON.stringify({ 
+      question, 
+      sql_override: sqlOverride || null,
+      conversation_history: conversationHistory || null
+    }),
   });
 }
 

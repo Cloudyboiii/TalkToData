@@ -1,16 +1,25 @@
 import io
 import sqlite3
 import pandas as pd
+import re
 from config import get_settings
 
 settings = get_settings()
 
-# In-memory session store: session_id -> {db_conn, schema, sample_rows, filename, row_count}
+# In-memory session store: session_id -> {db_conn, tables: [ {name, filename, row_count, column_count, schema, sample_rows} ]}
 _sessions: dict[str, dict] = {}
 
 
+def sanitize_table_name(filename: str) -> str:
+    name = filename.rsplit(".", 1)[0]
+    name = re.sub(r'\W+', '_', name).lower()
+    if name[0].isdigit():
+        name = "t_" + name
+    return name
+
+
 def ingest_csv(session_id: str, file_content: bytes, filename: str) -> dict:
-    """Parse CSV, infer schema, load into in-memory SQLite, return schema info."""
+    """Parse CSV, infer schema, load into in-memory SQLite, return all tables in session."""
     try:
         # Parse CSV
         df = pd.read_csv(io.BytesIO(file_content))
@@ -41,30 +50,40 @@ def ingest_csv(session_id: str, file_content: bytes, filename: str) -> dict:
                 "sample_values": df[col].dropna().head(3).tolist(),
             })
 
+        table_name = sanitize_table_name(filename)
+
+        if session_id not in _sessions:
+            _sessions[session_id] = {
+                "conn": sqlite3.connect(":memory:", check_same_thread=False),
+                "tables": []
+            }
+        
+        session = _sessions[session_id]
+        conn = session["conn"]
+        
         # Load into SQLite in-memory
-        conn = sqlite3.connect(":memory:", check_same_thread=False)
-        df.to_sql("data", conn, if_exists="replace", index=False)
+        df.to_sql(table_name, conn, if_exists="replace", index=False)
 
         # Sample rows for prompt context
         sample_rows = df.head(settings.MAX_ROWS_PREVIEW).to_dict(orient="records")
 
-        # Store session
-        _sessions[session_id] = {
-            "conn": conn,
-            "schema": schema,
-            "sample_rows": sample_rows,
-            "filename": filename,
-            "row_count": len(df),
-            "columns": list(df.columns),
-        }
-
-        return {
+        table_info = {
+            "name": table_name,
             "filename": filename,
             "row_count": len(df),
             "column_count": len(df.columns),
             "schema": schema,
             "sample_rows": sample_rows,
         }
+        
+        # Check if table already exists and update it, else append
+        existing_idx = next((i for i, t in enumerate(session["tables"]) if t["name"] == table_name), None)
+        if existing_idx is not None:
+            session["tables"][existing_idx] = table_info
+        else:
+            session["tables"].append(table_info)
+
+        return session["tables"]
 
     except Exception as e:
         raise ValueError(f"Failed to parse CSV: {str(e)}")

@@ -16,3 +16,20 @@ body { background: #f8fafc; color: #0f172a; -webkit-font-smoothing: antialiased;
   line-height: 1.6;
   resize: vertical;
 }
+
+@media print {
+  body {
+    background: white;
+    color: black;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .printable-container {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  @page {
+    margin: 0.5cm;
+  }
+}

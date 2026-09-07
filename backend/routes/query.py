@@ -2,7 +2,7 @@ import traceback
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from services.csv_processor import get_session, execute_sql
-from services.sql_generator import generate_sql
+from services.sql_generator import generate_sql, generate_insights
 from services.chart_recommender import recommend_chart
 
 router = APIRouter(tags=["Query"])
@@ -11,6 +11,7 @@ router = APIRouter(tags=["Query"])
 class QueryRequest(BaseModel):
     question: str
     sql_override: str | None = None  # Allow user to edit and re-run SQL
+    conversation_history: list[dict] | None = None
 
 
 @router.post("/query")
@@ -20,7 +21,7 @@ async def query(
 ):
     """Convert a natural language question to SQL, execute it, and return results with chart recommendation."""
     session = get_session(x_session_id)
-    if not session:
+    if not session or not session.get("tables"):
         raise HTTPException(
             status_code=400,
             detail="No dataset loaded. Please upload a CSV file first.",
@@ -36,9 +37,8 @@ async def query(
         else:
             sql = generate_sql(
                 question=req.question,
-                schema=session["schema"],
-                sample_rows=session["sample_rows"],
-                filename=session["filename"],
+                tables=session["tables"],
+                conversation_history=req.conversation_history
             )
 
         # Step 2: Execute SQL
@@ -47,6 +47,11 @@ async def query(
         # Step 3: Recommend chart
         chart = recommend_chart(result["columns"], result["rows"])
 
+        # Step 4: Generate insights
+        insights = []
+        if result["rows"]:
+            insights = generate_insights(req.question, sql, result["columns"], result["rows"])
+
         return {
             "question": req.question,
             "sql": sql,
@@ -54,6 +59,7 @@ async def query(
             "rows": result["rows"],
             "row_count": result["row_count"],
             "chart": chart,
+            "insights": insights,
         }
 
     except ValueError as e:
