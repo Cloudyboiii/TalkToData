@@ -90,12 +90,14 @@ export default function Home() {
       if (lastRes) {
         setSessionData(lastRes);
         setActiveTabIdx(lastRes.tables.length - 1);
+        setUploadProgress("All files uploaded successfully");
+        setTimeout(() => setUploadProgress(null), 3000);
       }
     } catch (e: any) { 
       setError(e.message); 
+      setUploadProgress(null);
     } finally { 
       setUploading(false); 
-      setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }, []);
@@ -143,11 +145,19 @@ export default function Home() {
   const loadDashboard = async () => {
     if (!sessionData) return;
     setLoading(true);
+    setError(null);
     setViewMode("dashboard");
     try {
       const res = await generateDashboard();
       setDashboardResults(res.results || res);
-    } catch (e: any) { setError(e.message); setViewMode("chat"); }
+    } catch (e: any) { 
+      if (e.message.includes("Rate limit reached")) {
+        setError("Gemini API rate limit reached. Please wait 30 seconds and try again.");
+      } else {
+        setError(e.message);
+        setViewMode("chat");
+      }
+    }
     finally { setLoading(false); }
   };
 
@@ -460,8 +470,13 @@ export default function Home() {
 
         <div className="max-w-5xl mx-auto px-6 py-8 print:py-0 print:px-0 w-full">
           {error && (
-            <div className="no-print mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-[13px] animate-enter">
-              {error}
+            <div className="no-print mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-[13px] animate-enter flex justify-between items-center">
+              <span>{error}</span>
+              {error.includes("rate limit") && (
+                <button onClick={loadDashboard} className="px-3 py-1 bg-red-100 hover:bg-red-200 rounded text-red-700 font-medium transition-colors">
+                  Retry
+                </button>
+              )}
             </div>
           )}
 
