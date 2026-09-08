@@ -33,6 +33,7 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   
@@ -68,22 +69,42 @@ export default function Home() {
   }, [queryHistory]);
 
   /* ---- Upload ---- */
-  const handleUpload = useCallback(async (file: File) => {
-    if (!file.name.toLowerCase().endsWith(".csv")) { setError("Only CSV files are accepted."); return; }
-    if (file.size > 25 * 1024 * 1024) { setError("File exceeds 25MB limit."); return; }
-    setUploading(true); setError(null);
+  const handleUpload = useCallback(async (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    const validFiles = fileArray.filter(f => f.name.toLowerCase().endsWith(".csv") && f.size <= 25 * 1024 * 1024);
+    
+    if (validFiles.length === 0) { 
+      setError("No valid CSV files selected. Files must be .csv and under 25MB."); 
+      return; 
+    }
+    
+    setUploading(true); 
+    setError(null);
+    let lastRes = null;
+
     try {
-      const res = await uploadCSV(file);
-      setSessionData(res);
-      setActiveTabIdx(res.tables.length - 1);
-    } catch (e: any) { setError(e.message); }
-    finally { setUploading(false); }
+      for (let i = 0; i < validFiles.length; i++) {
+        setUploadProgress(`Uploading ${i + 1} of ${validFiles.length}...`);
+        lastRes = await uploadCSV(validFiles[i]);
+      }
+      if (lastRes) {
+        setSessionData(lastRes);
+        setActiveTabIdx(lastRes.tables.length - 1);
+      }
+    } catch (e: any) { 
+      setError(e.message); 
+    } finally { 
+      setUploading(false); 
+      setUploadProgress(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleUpload(file);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUpload(e.dataTransfer.files);
+    }
   }, [handleUpload]);
 
   /* ---- Query ---- */
@@ -461,7 +482,7 @@ export default function Home() {
                 {uploading ? (
                   <div>
                     <div className="w-10 h-10 border-2 border-brand/30 border-t-brand rounded-full animate-spin mx-auto mb-3" />
-                    <p className="text-[13px] text-text-secondary">Processing your CSV...</p>
+                    <p className="text-[13px] text-text-secondary">{uploadProgress || "Processing your CSV..."}</p>
                   </div>
                 ) : (
                   <div>
@@ -474,8 +495,8 @@ export default function Home() {
                     <p className="text-[12px] text-text-muted">or click to browse — up to 25MB</p>
                   </div>
                 )}
-                <input ref={fileInputRef} type="file" accept=".csv" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); }} />
+                <input ref={fileInputRef} type="file" accept=".csv" multiple className="hidden"
+                  onChange={(e) => { if (e.target.files?.length) handleUpload(e.target.files); }} />
               </div>
             </div>
           ) : viewMode === "chat" ? (
@@ -495,7 +516,7 @@ export default function Home() {
                     </div>
                   ))}
                   <button onClick={() => fileInputRef.current?.click()} className="no-print h-9 w-9 rounded-lg border border-dashed border-border hover:border-brand/40 flex items-center justify-center text-brand transition-colors" title="Upload another table">+</button>
-                  <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUpload(f); }} />
+                  <input ref={fileInputRef} type="file" accept=".csv" multiple className="hidden" onChange={(e) => { if (e.target.files?.length) handleUpload(e.target.files); }} />
                 </div>
                 <button onClick={() => setShowSchema(!showSchema)} className="no-print text-[12px] text-brand hover:underline">{showSchema ? "Hide" : "Show"} Schema</button>
               </div>
