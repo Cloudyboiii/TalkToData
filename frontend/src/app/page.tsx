@@ -54,8 +54,20 @@ export default function Home() {
   const [profileData, setProfileData] = useState<any>(null);
 
   const [queryHistory, setQueryHistory] = useState<{question: string, sql: string, result_summary: string, chart_type: string, row_count: number, timestamp: number}[]>([]);
+  const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (retryCountdown !== null && retryCountdown > 0) {
+      timer = setTimeout(() => setRetryCountdown(retryCountdown - 1), 1000);
+    } else if (retryCountdown === 0) {
+      setRetryCountdown(null);
+      loadDashboard();
+    }
+    return () => clearTimeout(timer);
+  }, [retryCountdown]);
 
   useEffect(() => {
     const saved = sessionStorage.getItem("ttd_history");
@@ -150,9 +162,11 @@ export default function Home() {
     try {
       const res = await generateDashboard();
       setDashboardResults(res.results || res);
+      setRetryCountdown(null);
     } catch (e: any) { 
       if (e.message.includes("Rate limit reached")) {
         setError("Gemini API rate limit reached. Please wait 30 seconds and try again.");
+        setRetryCountdown(30);
       } else {
         setError(e.message);
         setViewMode("chat");
@@ -473,9 +487,14 @@ export default function Home() {
             <div className="no-print mb-4 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-[13px] animate-enter flex justify-between items-center">
               <span>{error}</span>
               {error.includes("rate limit") && (
-                <button onClick={loadDashboard} className="px-3 py-1 bg-red-100 hover:bg-red-200 rounded text-red-700 font-medium transition-colors">
-                  Retry
-                </button>
+                <div className="flex items-center gap-3">
+                  {retryCountdown !== null && (
+                    <span className="text-[12px] font-medium text-red-700 bg-red-100 px-2 py-1 rounded">Retrying in {retryCountdown}s</span>
+                  )}
+                  <button onClick={() => { setRetryCountdown(null); loadDashboard(); }} className="px-3 py-1 bg-red-100 hover:bg-red-200 rounded text-red-700 font-medium transition-colors">
+                    Retry Now
+                  </button>
+                </div>
               )}
             </div>
           )}

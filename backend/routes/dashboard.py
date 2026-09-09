@@ -46,7 +46,7 @@ async def generate_dashboard(x_session_id: str = Header(..., alias="X-Session-ID
             response = model.generate_content(prompt)
         except Exception as e:
             if "429" in str(e) or "ResourceExhausted" in str(e) or "quota" in str(e).lower():
-                time.sleep(10)
+                time.sleep(15)
                 response = model.generate_content(prompt)
             else:
                 raise e
@@ -63,7 +63,8 @@ async def generate_dashboard(x_session_id: str = Header(..., alias="X-Session-ID
         queries = json.loads(text)
     except Exception as e:
         if "429" in str(e) or "ResourceExhausted" in str(e) or "quota" in str(e).lower():
-            raise HTTPException(status_code=429, detail="Rate limit reached. Please wait a moment and try again.")
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=429, content={"error": "rate_limit", "message": "Rate limit reached. Please wait 30 seconds and try again."})
         raise HTTPException(status_code=500, detail=f"Failed to generate dashboard queries: {str(e)}")
 
     if not isinstance(queries, list) or len(queries) < 1:
