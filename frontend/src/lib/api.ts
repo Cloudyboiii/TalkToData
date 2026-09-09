@@ -25,14 +25,15 @@ export async function uploadCSV(file: File) {
   return request("/api/upload", { method: "POST", body: formData });
 }
 
-export async function queryData(question: string, sqlOverride?: string, conversationHistory?: any[]) {
+export async function queryData(question: string, sqlOverride?: string, conversationHistory?: any[], activeFilter?: string) {
   return request("/api/query", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ 
       question, 
       sql_override: sqlOverride || null,
-      conversation_history: conversationHistory || null
+      conversation_history: conversationHistory || null,
+      active_filter: activeFilter || null
     }),
   });
 }
@@ -67,4 +68,28 @@ export async function fixDataIssue(tableName: string, fixType: string, column?: 
 
 export async function getColumnProfile(tableName: string, columnName: string) {
   return request(`/api/profile/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`);
+}
+
+export async function generateFilter(filterText: string, schema: any[]) {
+  return request("/api/filter", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filter_text: filterText, schema })
+  });
+}
+
+export async function getAnomalies() {
+  return request("/api/anomalies", { method: "POST" });
+}
+
+export async function getForecast(dateColumn: string, valueColumn: string, periods: number) {
+  return request("/api/forecast", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date_column: dateColumn, value_column: valueColumn, periods })
+  });
+}
+
+export async function getCorrelations() {
+  return request("/api/correlations", { method: "POST" });
 }

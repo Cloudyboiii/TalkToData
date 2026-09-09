@@ -11,6 +11,10 @@ from routes.health import router as health_router
 from routes.dashboard import router as dashboard_router
 from routes.clean import router as clean_router
 from routes.profile import router as profile_router
+from routes.filter import router as filter_router
+from routes.anomalies import router as anomalies_router
+from routes.forecast import router as forecast_router
+from routes.correlations import router as correlations_router
 
 app = FastAPI(title="TalkToData API", version="1.0.0")
 
@@ -38,6 +42,10 @@ app.include_router(query_router, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(clean_router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
+app.include_router(filter_router, prefix="/api")
+app.include_router(anomalies_router, prefix="/api")
+app.include_router(forecast_router, prefix="/api")
+app.include_router(correlations_router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn

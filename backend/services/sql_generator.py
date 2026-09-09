@@ -19,7 +19,7 @@ RULES:
 Return ONLY the SQL query, nothing else."""
 
 
-def generate_sql(question: str, tables: list[dict], conversation_history: list[dict] = None) -> str:
+def generate_sql(question: str, tables: list[dict], conversation_history: list[dict] = None, active_filter: str = None) -> str:
     """Use Gemini to convert a natural language question into a SQL query."""
 
     # Build schema description
@@ -42,8 +42,12 @@ def generate_sql(question: str, tables: list[dict], conversation_history: list[d
             history_text += f"Q: {entry['question']} → SQL: {entry['sql']}\n"
         history_text += "\n"
 
+    filter_text = ""
+    if active_filter:
+        filter_text = f"IMPORTANT: You MUST include this filter clause in your query: {active_filter}\n"
+
     user_prompt = f"""{schema_text}
-{history_text}Question: {question}
+{history_text}{filter_text}Question: {question}
 
 Generate the SQLite SELECT query to answer this question."""
 

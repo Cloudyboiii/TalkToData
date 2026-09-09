@@ -6,7 +6,7 @@ import {
   CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell
 } from "recharts";
-import { uploadCSV, queryData, deleteDataset, generateDashboard, checkDataHealth, fixDataIssue, getColumnProfile } from "@/lib/api";
+import { uploadCSV, queryData, deleteDataset, generateDashboard, checkDataHealth, fixDataIssue, getColumnProfile, generateFilter, getAnomalies, getForecast, getCorrelations } from "@/lib/api";
 
 /* ---- Types ---- */
 interface SchemaCol { column: string; type: string; sample_values: any[]; }
@@ -55,6 +55,34 @@ export default function Home() {
 
   const [queryHistory, setQueryHistory] = useState<{question: string, sql: string, result_summary: string, chart_type: string, row_count: number, timestamp: number}[]>([]);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
+
+  // Feature States
+  const [filterText, setFilterText] = useState("");
+  const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [applyingFilter, setApplyingFilter] = useState(false);
+
+  const [showPivot, setShowPivot] = useState(false);
+  const [pivotConfig, setPivotConfig] = useState({ row: "", col: "", val: "", agg: "SUM" });
+
+  const [showAnomalies, setShowAnomalies] = useState(false);
+  const [anomaliesData, setAnomaliesData] = useState<any>(null);
+
+  const [showForecast, setShowForecast] = useState(false);
+  const [forecastConfig, setForecastConfig] = useState({ dateCol: "", valCol: "", periods: 3 });
+  const [forecastData, setForecastData] = useState<any>(null);
+
+  const [showCorrelations, setShowCorrelations] = useState(false);
+  const [correlationsData, setCorrelationsData] = useState<any>(null);
+
+  const [showSaved, setShowSaved] = useState(false);
+  const [savedQueries, setSavedQueries] = useState<any[]>([]);
+
+  useEffect(() => {
+    const savedQ = localStorage.getItem("talktodata_saved_queries");
+    if (savedQ) {
+      try { setSavedQueries(JSON.parse(savedQ)); } catch (e) {}
+    }
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -133,7 +161,7 @@ export default function Home() {
     const historyContext = queryHistory.slice(-3).map(h => ({question: h.question, sql: h.sql}));
     
     try {
-      const res = await queryData(qText, sqlOverride, historyContext);
+      const res = await queryData(qText, sqlOverride, historyContext, activeFilter || undefined);
       setResults(prev => [res, ...prev]);
       if (!sqlOverride) setQuestion("");
       
@@ -151,6 +179,7 @@ export default function Home() {
     setDashboardResults([]);
     setShowHealth(false);
     setHealthData(null);
+    setActiveFilter(null);
   };
 
   /* ---- Dashboard ---- */
@@ -213,6 +242,67 @@ export default function Home() {
       setProfilingColumn(null);
       setTimeout(() => document.getElementById("qInput")?.focus(), 100);
     }
+  };
+
+  /* ---- New Feature Handlers ---- */
+  const applyFilter = async () => {
+    if (!filterText.trim() || !sessionData) return;
+    setApplyingFilter(true);
+    try {
+      const res = await generateFilter(filterText, sessionData.tables[activeTabIdx].schema);
+      if (res.error) throw new Error(res.error);
+      if (res.where_clause) {
+        setActiveFilter(res.where_clause);
+      }
+    } catch(e: any) { setError(e.message); }
+    finally { setApplyingFilter(false); setFilterText(""); }
+  };
+
+  const buildPivot = async () => {
+    if (!pivotConfig.row || !pivotConfig.col || !pivotConfig.val || !sessionData) return;
+    const table = sessionData.tables[activeTabIdx].name;
+    const sql = `SELECT ${pivotConfig.row}, ${pivotConfig.col}, ${pivotConfig.agg}(${pivotConfig.val}) as val FROM ${table} GROUP BY ${pivotConfig.row}, ${pivotConfig.col}`;
+    await handleQuery("Pivot Table", sql);
+    setShowPivot(false);
+  };
+
+  const loadAnomalies = async () => {
+    if (!sessionData) return;
+    setShowAnomalies(true); setAnomaliesData(null);
+    try {
+      const res = await getAnomalies();
+      setAnomaliesData(res);
+    } catch(e: any) { setError(e.message); }
+  };
+
+  const loadForecast = async () => {
+    if (!forecastConfig.dateCol || !forecastConfig.valCol || !sessionData) return;
+    setForecastData(null);
+    try {
+      const res = await getForecast(forecastConfig.dateCol, forecastConfig.valCol, forecastConfig.periods);
+      setForecastData(res);
+    } catch(e: any) { setError(e.message); }
+  };
+
+  const loadCorrelations = async () => {
+    if (!sessionData) return;
+    setShowCorrelations(true); setCorrelationsData(null);
+    try {
+      const res = await getCorrelations();
+      setCorrelationsData(res);
+    } catch(e: any) { setError(e.message); }
+  };
+
+  const saveQuery = (result: QueryResult) => {
+    const newSaved = [{ id: Date.now(), question: result.question || "Custom SQL", sql: result.sql, timestamp: Date.now() }, ...savedQueries].slice(0, 20);
+    setSavedQueries(newSaved);
+    localStorage.setItem("talktodata_saved_queries", JSON.stringify(newSaved));
+  };
+
+  const deleteSavedQuery = (id: number) => {
+    const newSaved = savedQueries.filter(q => q.id !== id);
+    setSavedQueries(newSaved);
+    localStorage.setItem("talktodata_saved_queries", JSON.stringify(newSaved));
   };
 
   /* ---- Export PDF ---- */
@@ -291,7 +381,14 @@ export default function Home() {
         {/* Question header */}
         <div className="px-5 py-4 border-b border-border bg-surface-muted print:bg-gray-100 flex justify-between items-center">
           <div>
-            <p className="text-[14px] font-medium text-text print:text-black">{result.title || result.question || "Custom SQL"}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[14px] font-medium text-text print:text-black">{result.title || result.question || "Custom SQL"}</p>
+              {!isDashboard && (
+                <button onClick={() => saveQuery(result)} className="text-text-muted hover:text-brand transition-colors" title="Save Query">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+                </button>
+              )}
+            </div>
             {isDashboard && result.title && <p className="text-[12px] text-text-muted mt-0.5">{result.question}</p>}
             {!isDashboard && <p className="text-[11px] text-text-muted mt-0.5 print:text-gray-500">{result.row_count} rows returned</p>}
           </div>
@@ -457,6 +554,26 @@ export default function Home() {
                   className={`text-[12px] px-3 h-8 rounded-lg border ${viewMode === "dashboard" ? "bg-brand text-white border-brand" : "border-border text-text-secondary hover:text-brand"}`}>
                   Dashboard
                 </button>
+                <button onClick={() => setShowPivot(true)}
+                  className="text-[12px] px-3 h-8 rounded-lg border border-border hover:border-brand/30 text-text-secondary hover:text-brand transition-colors">
+                  Pivot
+                </button>
+                <button onClick={loadAnomalies}
+                  className="text-[12px] px-3 h-8 rounded-lg border border-border hover:border-brand/30 text-text-secondary hover:text-brand transition-colors">
+                  Anomalies
+                </button>
+                <button onClick={() => setShowForecast(true)}
+                  className="text-[12px] px-3 h-8 rounded-lg border border-border hover:border-brand/30 text-text-secondary hover:text-brand transition-colors">
+                  Forecast
+                </button>
+                <button onClick={loadCorrelations}
+                  className="text-[12px] px-3 h-8 rounded-lg border border-border hover:border-brand/30 text-text-secondary hover:text-brand transition-colors">
+                  Correlations
+                </button>
+                <button onClick={() => setShowSaved(true)}
+                  className="text-[12px] px-3 h-8 rounded-lg border border-border hover:border-brand/30 text-text-secondary hover:text-brand transition-colors">
+                  Saved
+                </button>
                 <button onClick={loadHealth}
                   className="text-[12px] px-3 h-8 rounded-lg border border-border hover:border-brand/30 text-text-secondary hover:text-brand transition-colors">
                   Data Health
@@ -554,6 +671,20 @@ export default function Home() {
                 </div>
                 <button onClick={() => setShowSchema(!showSchema)} className="no-print text-[12px] text-brand hover:underline">{showSchema ? "Hide" : "Show"} Schema</button>
               </div>
+
+              {/* Natural Language Filter */}
+              <div className="no-print bg-white rounded-xl border border-border p-3 flex items-center gap-3">
+                <input type="text" value={filterText} onChange={e => setFilterText(e.target.value)} onKeyDown={e => e.key === "Enter" && applyFilter()} placeholder="Filter data... (e.g. 'only show Q1 2024', 'exclude cancelled orders', 'where salary > 80000')" className="flex-1 text-[13px] outline-none" disabled={applyingFilter} />
+                <button onClick={applyFilter} disabled={applyingFilter || !filterText.trim()} className="text-[12px] px-3 py-1.5 bg-surface-muted hover:bg-brand/[0.05] border border-border rounded text-text-secondary hover:text-brand disabled:opacity-50">Apply Filter</button>
+              </div>
+              {activeFilter && (
+                <div className="flex items-center gap-2 px-1 animate-enter">
+                  <span className="text-[12px] bg-brand/10 text-brand px-3 py-1.5 rounded-full border border-brand/20 flex items-center gap-2">
+                    Active filter: {activeFilter}
+                    <button onClick={() => setActiveFilter(null)} className="hover:text-red-500 font-bold ml-1">✕</button>
+                  </span>
+                </div>
+              )}
 
               {/* Schema panel */}
               {showSchema && (
@@ -771,6 +902,139 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Pivot Table Slide-in */}
+      <div className={`fixed inset-y-0 right-0 bg-white shadow-xl z-50 w-full sm:w-[400px] border-l border-border transform transition-transform duration-300 ${showPivot ? "translate-x-0" : "translate-x-full"} flex flex-col`}>
+        <div className="p-5 border-b border-border flex justify-between items-center bg-surface-muted">
+          <h2 className="text-[16px] font-bold text-text">Pivot Builder</h2>
+          <button onClick={() => setShowPivot(false)} className="text-text-muted hover:text-text p-1">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div><label className="text-[12px] font-medium text-text-secondary block mb-1">Row</label><select className="w-full p-2 border rounded text-[13px]" value={pivotConfig.row} onChange={e=>setPivotConfig({...pivotConfig, row: e.target.value})}><option value="">Select Row...</option>{sessionData?.tables[activeTabIdx]?.schema.map(c=><option key={c.column} value={c.column}>{c.column}</option>)}</select></div>
+          <div><label className="text-[12px] font-medium text-text-secondary block mb-1">Column</label><select className="w-full p-2 border rounded text-[13px]" value={pivotConfig.col} onChange={e=>setPivotConfig({...pivotConfig, col: e.target.value})}><option value="">Select Column...</option>{sessionData?.tables[activeTabIdx]?.schema.map(c=><option key={c.column} value={c.column}>{c.column}</option>)}</select></div>
+          <div><label className="text-[12px] font-medium text-text-secondary block mb-1">Value</label><select className="w-full p-2 border rounded text-[13px]" value={pivotConfig.val} onChange={e=>setPivotConfig({...pivotConfig, val: e.target.value})}><option value="">Select Value...</option>{sessionData?.tables[activeTabIdx]?.schema.filter(c=>c.type==='numeric').map(c=><option key={c.column} value={c.column}>{c.column}</option>)}</select></div>
+          <div><label className="text-[12px] font-medium text-text-secondary block mb-1">Aggregation</label><select className="w-full p-2 border rounded text-[13px]" value={pivotConfig.agg} onChange={e=>setPivotConfig({...pivotConfig, agg: e.target.value})}><option value="SUM">SUM</option><option value="COUNT">COUNT</option><option value="AVG">AVG</option><option value="MIN">MIN</option><option value="MAX">MAX</option></select></div>
+          <button onClick={buildPivot} className="w-full py-2 bg-brand text-white rounded font-medium mt-4 text-[13px]">Build Pivot</button>
+        </div>
+      </div>
+
+      {/* Anomalies Slide-in */}
+      <div className={`fixed inset-y-0 right-0 bg-white shadow-xl z-50 w-full sm:w-[400px] border-l border-border transform transition-transform duration-300 ${showAnomalies ? "translate-x-0" : "translate-x-full"} flex flex-col`}>
+        <div className="p-5 border-b border-border flex justify-between items-center bg-surface-muted">
+          <h2 className="text-[16px] font-bold text-text">Anomalies</h2>
+          <button onClick={() => setShowAnomalies(false)} className="text-text-muted hover:text-text p-1">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          {!anomaliesData ? (
+             <div className="flex justify-center items-center h-40"><div className="w-8 h-8 border-2 border-brand/30 border-t-brand rounded-full animate-spin" /></div>
+          ) : anomaliesData.anomalies.length === 0 ? (
+             <p className="text-[13px] text-green-600 bg-green-50 p-3 rounded-lg border border-green-100 text-center">No anomalies detected!</p>
+          ) : (
+             <div className="space-y-3">
+               {anomaliesData.anomalies.map((a: any, i: number) => (
+                 <div key={i} className="bg-white border border-border rounded-lg p-3">
+                   <div className="flex items-start justify-between gap-2 mb-1">
+                     <p className="text-[13px] font-medium text-text">{a.description}</p>
+                     <span className={`text-[10px] px-2 py-0.5 rounded font-medium uppercase tracking-wider ${a.severity === 'high' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{a.severity}</span>
+                   </div>
+                   <p className="text-[11px] text-text-muted">Row: {a.row_index} {a.column && `| Col: ${a.column}`} {a.value != null && `| Val: ${a.value}`}</p>
+                 </div>
+               ))}
+             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Forecast Slide-in */}
+      <div className={`fixed inset-y-0 right-0 bg-white shadow-xl z-50 w-full sm:w-[400px] border-l border-border transform transition-transform duration-300 ${showForecast ? "translate-x-0" : "translate-x-full"} flex flex-col`}>
+        <div className="p-5 border-b border-border flex justify-between items-center bg-surface-muted">
+          <h2 className="text-[16px] font-bold text-text">Forecast</h2>
+          <button onClick={() => setShowForecast(false)} className="text-text-muted hover:text-text p-1">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div className="space-y-2 mb-4 pb-4 border-b">
+            <div><label className="text-[12px] font-medium text-text-secondary block mb-1">Date Column</label><select className="w-full p-2 border rounded text-[13px]" value={forecastConfig.dateCol} onChange={e=>setForecastConfig({...forecastConfig, dateCol: e.target.value})}><option value="">Select Date...</option>{sessionData?.tables[activeTabIdx]?.schema.map(c=><option key={c.column} value={c.column}>{c.column}</option>)}</select></div>
+            <div><label className="text-[12px] font-medium text-text-secondary block mb-1">Value Column</label><select className="w-full p-2 border rounded text-[13px]" value={forecastConfig.valCol} onChange={e=>setForecastConfig({...forecastConfig, valCol: e.target.value})}><option value="">Select Value...</option>{sessionData?.tables[activeTabIdx]?.schema.filter(c=>c.type==='numeric').map(c=><option key={c.column} value={c.column}>{c.column}</option>)}</select></div>
+            <div><label className="text-[12px] font-medium text-text-secondary block mb-1">Periods to forecast: {forecastConfig.periods}</label><input type="range" min="1" max="12" className="w-full" value={forecastConfig.periods} onChange={e=>setForecastConfig({...forecastConfig, periods: parseInt(e.target.value)})} /></div>
+            <button onClick={loadForecast} className="w-full py-2 bg-brand text-white rounded font-medium mt-2 text-[13px]">Generate Forecast</button>
+          </div>
+          {forecastData && (
+             <div className="space-y-4">
+               <div className="flex gap-2 justify-center">
+                 <span className="text-[12px] px-2 py-1 bg-gray-100 rounded">Trend: {forecastData.trend} {forecastData.trend==='increasing'?'↑':forecastData.trend==='decreasing'?'↓':'-'}</span>
+                 <span className="text-[12px] px-2 py-1 bg-gray-100 rounded">Fit (R²): {forecastData.r_squared.toFixed(2)}</span>
+               </div>
+               <ResponsiveContainer width="100%" height={250}>
+                 <LineChart margin={{top:10, right:10, left:0, bottom:20}}>
+                   <CartesianGrid strokeDasharray="3 3" />
+                   <XAxis dataKey="date" type="category" allowDuplicatedCategory={false} tick={{fontSize:10}} angle={-30} textAnchor="end" />
+                   <YAxis tick={{fontSize:10}} />
+                   <Tooltip />
+                   <Line data={forecastData.historical} type="monotone" dataKey="value" stroke="#2563eb" dot={false} name="Historical" />
+                   <Line data={forecastData.forecast} type="monotone" dataKey="value" stroke="#059669" strokeDasharray="5 5" dot={false} name="Forecast" />
+                 </LineChart>
+               </ResponsiveContainer>
+             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Correlations Slide-in */}
+      <div className={`fixed inset-y-0 right-0 bg-white shadow-xl z-50 w-full sm:w-[400px] border-l border-border transform transition-transform duration-300 ${showCorrelations ? "translate-x-0" : "translate-x-full"} flex flex-col`}>
+        <div className="p-5 border-b border-border flex justify-between items-center bg-surface-muted">
+          <h2 className="text-[16px] font-bold text-text">Correlations</h2>
+          <button onClick={() => setShowCorrelations(false)} className="text-text-muted hover:text-text p-1">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          {!correlationsData ? (
+             <div className="flex justify-center items-center h-40"><div className="w-8 h-8 border-2 border-brand/30 border-t-brand rounded-full animate-spin" /></div>
+          ) : correlationsData.correlations.length === 0 ? (
+             <p className="text-[13px] text-gray-600 text-center">Not enough numeric columns or no significant correlations.</p>
+          ) : (
+             <div className="space-y-3">
+               <h3 className="text-[13px] font-medium text-text-secondary uppercase">Top Correlations</h3>
+               {correlationsData.correlations.slice(0, 5).map((c: any, i: number) => (
+                 <div key={i} className="bg-white border border-border rounded-lg p-3 flex justify-between items-center">
+                   <div>
+                     <p className="text-[13px] font-medium text-text">{c.col1} ↔ {c.col2}</p>
+                     <p className="text-[11px] text-text-muted capitalize">{c.strength} {c.direction}</p>
+                   </div>
+                   <div className="text-[14px] font-bold text-brand">{c.coefficient.toFixed(2)}</div>
+                 </div>
+               ))}
+             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Saved Queries Slide-in */}
+      <div className={`fixed inset-y-0 right-0 bg-white shadow-xl z-50 w-full sm:w-[400px] border-l border-border transform transition-transform duration-300 ${showSaved ? "translate-x-0" : "translate-x-full"} flex flex-col`}>
+        <div className="p-5 border-b border-border flex justify-between items-center bg-surface-muted">
+          <h2 className="text-[16px] font-bold text-text">Saved Queries</h2>
+          <button onClick={() => setShowSaved(false)} className="text-text-muted hover:text-text p-1">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          {savedQueries.length === 0 ? (
+             <p className="text-[13px] text-gray-600 text-center">No saved queries yet. Bookmark a result to save it.</p>
+          ) : (
+             <div className="space-y-3">
+               {savedQueries.map((q: any) => (
+                 <div key={q.id} className="bg-white border border-border rounded-lg p-3">
+                   <p className="text-[13px] font-medium text-text mb-2">{q.question}</p>
+                   <p className="text-[10px] text-text-muted mb-2 font-mono truncate">{q.sql}</p>
+                   <div className="flex justify-between items-center">
+                     <span className="text-[10px] text-text-muted">{new Date(q.timestamp).toLocaleString()}</span>
+                     <div className="flex gap-2">
+                       <button onClick={() => { handleQuery(q.question, q.sql); setShowSaved(false); }} className="text-[11px] text-brand hover:underline">Run again</button>
+                       <button onClick={() => deleteSavedQuery(q.id)} className="text-[11px] text-red-500 hover:underline">Delete</button>
+                     </div>
+                   </div>
+                 </div>
+               ))}
+             </div>
+          )}
+        </div>
+      </div>
 
       {/* Overlay to close health panel */}
       {showHealth && <div className="fixed inset-0 bg-black/20 z-40 lg:hidden" onClick={() => setShowHealth(false)} />}

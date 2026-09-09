@@ -12,6 +12,7 @@ class QueryRequest(BaseModel):
     question: str
     sql_override: str | None = None  # Allow user to edit and re-run SQL
     conversation_history: list[dict] | None = None
+    active_filter: str | None = None
 
 
 @router.post("/query")
@@ -38,7 +39,8 @@ async def query(
             sql = generate_sql(
                 question=req.question,
                 tables=session["tables"],
-                conversation_history=req.conversation_history
+                conversation_history=req.conversation_history,
+                active_filter=req.active_filter
             )
 
         # Step 2: Execute SQL
